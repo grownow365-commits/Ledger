@@ -1,0 +1,130 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="light dark"><title>Pocket Ledger</title>
+<link rel="manifest" href="manifest.webmanifest"><meta name="theme-color" content="#4f46e5"><link rel="icon" href="icon-192.png">
+<style>
+:root{--bg:#f4f6fb;--c:#fff;--t:#1b1f2a;--s:#6b7280;--p:#4f46e5;--g:#16a34a;--r:#dc2626;--b:#e5e7eb}
+@media(prefers-color-scheme:dark){:root{--bg:#0f1220;--c:#1a1e30;--t:#eef0f7;--s:#9aa1b5;--b:#2a2f45}}
+*{box-sizing:border-box}body{margin:0;font:15px system-ui,sans-serif;background:var(--bg);color:var(--t)}
+main{padding:14px 14px 90px;padding-top:max(14px,env(safe-area-inset-top));max-width:640px;margin:auto}
+.card{background:var(--c);border-radius:16px;padding:14px;margin-bottom:12px;box-shadow:0 1px 3px #0001}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.grid .card{margin:0}.grid{margin-bottom:12px}
+.k,.sm{color:var(--s);font-size:12px}.v{font-size:20px;font-weight:700}.big .v{font-size:26px}
+h2{margin:6px 0 12px;font-size:20px}h3{margin:4px 0 10px;font-size:15px}
+button,input,select{font:inherit}
+.btn{border:0;border-radius:12px;padding:12px;background:var(--p);color:#fff;font-weight:600}
+.btn.o{background:var(--c);color:var(--p);border:1px solid var(--b)}.btn.d{background:var(--r)}.w{width:100%;margin-top:8px}
+input,select{width:100%;padding:11px;border-radius:10px;border:1px solid var(--b);background:var(--c);color:var(--t);margin:4px 0 10px}
+label{font-size:12px;color:var(--s)}
+nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:var(--c);border-top:1px solid var(--b);padding-bottom:env(safe-area-inset-bottom)}
+nav button{flex:1;background:none;border:0;padding:9px 0;color:var(--s);font-size:10.5px}nav button.on{color:var(--p);font-weight:700}
+.modal{position:fixed;inset:0;background:#0007;display:flex;align-items:flex-end;z-index:9}.modal[hidden]{display:none}
+.sheet{background:var(--bg);width:100%;max-height:92vh;overflow:auto;border-radius:20px 20px 0 0;padding:16px;max-width:640px;margin:auto}
+.row{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px 0;border-bottom:1px solid var(--b)}.row:last-child{border:0}
+.pos{color:var(--g)}.neg{color:var(--r)}
+.warn{padding:10px;border-radius:10px;margin-bottom:8px;background:#fef3c7;color:#92400e}.warn.x{background:#fee2e2;color:#991b1b}
+.bar{height:8px;border-radius:4px;background:var(--b);overflow:hidden;margin:3px 0 10px}.bar i{display:block;height:100%;background:var(--p)}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+</style></head><body><main id="v"></main><nav id="nav"></nav><div class="modal" id="m" hidden onclick="if(event.target==this)closeM()"></div>
+<script>
+const $=s=>document.querySelector(s),KEY='pocket_ledger_v1',BASE=['Food','College','Education','Travel','Shopping','Entertainment','Health','Personal','Other'];
+let D=load(),tab='home',F={q:'',type:'',acct:'',kind:''};
+function load(){try{const d=JSON.parse(localStorage.getItem(KEY));if(d&&Array.isArray(d.tx)){d.cats=d.cats||[];d.lim=d.lim||{};d.lim.cat=d.lim.cat||{};return d}}catch(e){}return{tx:[],cats:[],lim:{month:0,futile:0,cat:{}}}}
+const persist=()=>localStorage.setItem(KEY,JSON.stringify(D)),save=()=>{persist();render()};
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const cats=()=>[...BASE,...D.cats],sum=a=>a.reduce((s,t)=>s+t.amt,0),r2=n=>Math.round(n*100)/100;
+const money=n=>(n<0?'−':'')+'₹'+Math.abs(r2(n)).toLocaleString('en-IN'),A=a=>a=='online'?'Online':'Offline';
+const today=()=>new Date(Date.now()-new Date().getTimezoneOffset()*6e4).toISOString().slice(0,10),newId=()=>Date.now()*1000+Math.floor(Math.random()*1000);
+const lendP=t=>(D.tx.find(x=>x.id==t.lendId)||{}).person||'';
+const rem=(id,ex)=>{const l=D.tx.find(t=>t.id==id);return l?r2(l.amt-sum(D.tx.filter(t=>t.type=='repay'&&t.lendId==id&&t.id!=ex))):0};
+// ---- ACCOUNTING: every number is recomputed from the transaction list, so edits/deletes are always consistent
+function calc(tx=D.tx){const m={on:0,off:0,spent:0,useful:0,futile:0,son:0,soff:0,lent:0};
+for(const t of tx){const a=t.acct=='online'?'on':'off',b=a=='on'?'off':'on',n=t.amt;
+if(t.type=='add')m[a]+=n;
+else if(t.type=='expense'){m[a]-=n;m.spent+=n;m[t.kind]+=n;m['s'+a]+=n}
+else if(t.type=='transfer'){m[a]-=n;m[b]+=n}
+else if(t.type=='lend'){m[a]-=n;m.lent+=n}
+else if(t.type=='repay'){m[a]+=n;m.lent-=n}}
+for(const k in m)m[k]=r2(m[k]);return m}
+function warns(){const mo=today().slice(0,7),w=[],ex=D.tx.filter(t=>t.type=='expense'&&t.date.startsWith(mo));
+const chk=(n,s,l)=>{if(l>0){const p=s/l;if(p>=1)w.push(['x',`⚠️ ${esc(n)} limit exceeded: ${money(s)} of ${money(l)}`]);else if(p>=.8)w.push(['',`⚠️ ${esc(n)} at ${Math.round(p*100)}%: ${money(s)} of ${money(l)}`])}};
+chk('Monthly spending',sum(ex),D.lim.month);chk('Futile spending',sum(ex.filter(t=>t.kind=='futile')),D.lim.futile);
+for(const c in D.lim.cat)chk(c,sum(ex.filter(t=>t.cat==c)),D.lim.cat[c]);return w}
+// ---- PAGES
+function home(){const m=calc();return`<h2>Pocket Ledger</h2>${warns().map(w=>`<div class="warn ${w[0]}">${w[1]}</div>`).join('')}
+<div class="grid"><div class="card big"><div class="k">Online Balance</div><div class="v ${m.on<0?'neg':''}">${money(m.on)}</div></div><div class="card big"><div class="k">Offline Balance</div><div class="v ${m.off<0?'neg':''}">${money(m.off)}</div></div></div>
+<div class="grid">${[['Total Amount Spent',m.spent],['Futile Money Used',m.futile],['Lent Money Outstanding',m.lent],['Useful Expenses',m.useful],['Online Spends',m.son],['Offline Spends',m.soff]].map(([k,v])=>`<div class="card"><div class="k">${k}</div><div class="v">${money(v)}</div></div>`).join('')}</div>
+<div class="grid"><button class="btn" onclick="openF('add')">＋ Add Money</button><button class="btn" onclick="openF('expense')">− Add Expense</button><button class="btn o" onclick="openF('transfer')">⇄ Transfer</button><button class="btn o" onclick="openF('lend')">🤝 Lend Money</button></div>
+<div class="sm">Total spent = Useful + Futile. Transfers are never counted as spending.</div>`}
+function row(t){let ti,sg,c='',cl=A(t.acct);
+if(t.type=='add'){ti='Added: '+(t.reason||'Money');sg='+';c='pos'}
+else if(t.type=='expense'){ti=t.cat+' · '+(t.kind=='futile'?'Futile':'Useful');sg='−';c='neg'}
+else if(t.type=='transfer'){ti='Transfer';cl=A(t.acct)+' → '+A(t.acct=='online'?'offline':'online');sg='⇄'}
+else if(t.type=='lend'){ti='Lent to '+t.person;sg='−';c='neg'}
+else{ti='Repaid by '+lendP(t);sg='+';c='pos'}
+return`<div class="row" onclick="openF('${t.type}','${t.id}')"><div><b>${esc(ti)}</b><div class="sm">${t.date} · ${cl}${t.reason&&t.type!='add'?' · '+esc(t.reason):''}${t.note?' · '+esc(t.note):''}</div></div><b class="${c}">${sg}${money(t.amt)}</b></div>`}
+function txPage(){const o=(v,l)=>`<option value="${v}">${l}</option>`;return`<h2>Transactions</h2><div class="card"><input placeholder="🔍 Search…" value="${esc(F.q)}" oninput="F.q=this.value;list()">
+<div class="two"><select onchange="F.type=this.value;list()">${o('','All types')+o('add','Money added')+o('expense','Expenses')+o('transfer','Transfers')+o('lend','Lent')+o('repay','Repayments')}</select>
+<select onchange="F.acct=this.value;list()">${o('','Online + Offline')+o('online','Online')+o('offline','Offline')}</select></div>
+<select onchange="F.kind=this.value;list()">${o('','Useful + Futile')+o('useful','Useful only')+o('futile','Futile only')}</select><div class="sm">Tap a transaction to edit or delete it.</div></div><div class="card" id="list"></div>`}
+function list(){const q=F.q.toLowerCase(),L=D.tx.filter(t=>(!F.type||t.type==F.type)&&(!F.acct||t.acct==F.acct||t.type=='transfer')&&(!F.kind||t.kind==F.kind)&&(!q||[t.type,t.cat,t.kind,t.reason,t.note,t.person,lendP(t),t.date,t.amt,t.acct].join(' ').toLowerCase().includes(q))).sort((a,b)=>b.date.localeCompare(a.date)||b.id-a.id);
+$('#list').innerHTML=L.map(row).join('')||'<div class="sm">No transactions found</div>'}
+function lentPage(){const m=calc(),L=D.tx.filter(t=>t.type=='lend').sort((a,b)=>b.date.localeCompare(a.date)||b.id-a.id);
+return`<h2>Lent Money</h2><div class="card big"><div class="k">Total Outstanding</div><div class="v">${money(m.lent)}</div></div><button class="btn w" style="margin:0 0 12px" onclick="openF('lend')">＋ Lend Money</button>
+<div class="card">${L.map(t=>{const r=rem(t.id);return`<div class="row"><div onclick="openF('lend','${t.id}')"><b>${esc(t.person)}</b> <span class="sm">${t.date} · ${A(t.acct)}</span><div class="sm">Lent ${money(t.amt)} · Repaid ${money(t.amt-r)}${t.reason?' · '+esc(t.reason):''}</div></div><div style="text-align:right"><b class="${r>0?'neg':'pos'}">${r>0?money(r)+' due':'Settled'}</b>${r>0?`<br><button class="btn o" style="padding:6px 10px;margin-top:4px" onclick="openF('repay','','${t.id}')">Repay</button>`:''}</div></div>`}).join('')||'<div class="sm">Nothing lent yet</div>'}</div><div class="sm">Repayments appear in Transactions, where you can edit or delete them.</div>`}
+function bars(o){const mx=Math.max(1,...Object.values(o)),e=Object.entries(o);return e.map(([k,v])=>`<div class="sm">${esc(k)} — <b>${money(v)}</b></div><div class="bar"><i style="width:${v/mx*100}%"></i></div>`).join('')||'<div class="sm">No data yet</div>'}
+function stats(){const m=calc(),ex=D.tx.filter(t=>t.type=='expense'),bc={},bm={};
+ex.forEach(t=>{bc[t.cat]=r2((bc[t.cat]||0)+t.amt);const k=t.date.slice(0,7);bm[k]=r2((bm[k]||0)+t.amt)});
+const srt=o=>Object.fromEntries(Object.entries(o).sort((a,b)=>b[1]-a[1])),mo=Object.fromEntries(Object.entries(bm).sort().reverse()),p=v=>m.spent?Math.round(v/m.spent*100)+'%':'0%';
+return`<h2>Statistics</h2><div class="card"><h3>Useful vs Futile (${p(m.futile)} futile)</h3>${bars({Useful:m.useful,Futile:m.futile})}</div>
+<div class="card"><h3>Online vs Offline (${p(m.son)} online)</h3>${bars({Online:m.son,Offline:m.soff})}</div>
+<div class="card"><h3>Spending by category</h3>${bars(srt(bc))}</div><div class="card"><h3>Monthly spending</h3>${bars(mo)}</div>`}
+function settings(){const L=D.lim;return`<h2>Settings</h2><div class="card"><h3>Spending limits (optional, 0 = off)</h3><div class="sm">Warnings only — spending is never blocked. Limits apply to the current month.</div>
+<label>Monthly spending limit (₹)</label><input type="number" value="${L.month||''}" onchange="setLim('month',this.value)">
+<label>Futile spending limit (₹)</label><input type="number" value="${L.futile||''}" onchange="setLim('futile',this.value)">
+<h3>Category limits</h3>${cats().map(c=>`<label>${esc(c)}</label><input type="number" value="${L.cat[c]||''}" onchange="setLim(0,this.value,this.dataset.c)" data-c="${esc(c)}">`).join('')}</div>
+<div class="card"><h3>Custom categories</h3>${D.cats.map((c,i)=>`<div class="row"><span>${esc(c)}</span><button class="btn o" onclick="delCat(${i})">Remove</button></div>`).join('')}<input id="nc" placeholder="New category name"><button class="btn w" style="margin:0" onclick="addCat()">Add category</button></div>
+<div class="card"><h3>Backup</h3><button class="btn w" style="margin:0 0 8px" onclick="expJSON()">Export backup (JSON)</button><button class="btn o w" onclick="expCSV()">Export spreadsheet (CSV)</button>
+<label style="display:block;margin-top:12px">Import backup (JSON) — replaces current data</label><input type="file" accept=".json,application/json" onchange="impJSON(this)">
+<button class="btn d w" onclick="if(confirm('Delete ALL data? This cannot be undone.')){D={tx:[],cats:[],lim:{month:0,futile:0,cat:{}}};save()}">Erase all data</button></div>`}
+const P={home,tx:txPage,lent:lentPage,stats,set:settings};
+function render(){$('#v').innerHTML=P[tab]();if(tab=='tx')list();$('#nav').innerHTML=[['home','🏠','Home'],['tx','🧾','Transactions'],['lent','🤝','Lent Money'],['stats','📊','Statistics'],['set','⚙️','Settings']].map(([k,i,l])=>`<button class="${k==tab?'on':''}" onclick="tab='${k}';render();scrollTo(0,0)"><div style="font-size:18px">${i}</div>${l}</button>`).join('')}
+function setLim(k,v,c){v=parseFloat(v)||0;if(c){D.lim.cat[c]=v;if(!v)delete D.lim.cat[c]}else D.lim[k]=v;persist()}
+function addCat(){const n=$('#nc').value.trim();if(n&&!cats().some(c=>c.toLowerCase()==n.toLowerCase())){D.cats.push(n);save()}}
+function delCat(i){D.cats.splice(i,1);save()}
+// ---- FORMS
+const f=(l,h)=>`<label>${l}</label>${h}`,inp=(n,v,ty='text',x='')=>`<input id="f_${n}" type="${ty}" value="${esc(v)}" ${x}>`,
+sel=(n,o,v)=>`<select id="f_${n}">${o.map(x=>{const[a,b]=Array.isArray(x)?x:[x,x];return`<option value="${esc(a)}" ${a==v?'selected':''}>${esc(b)}</option>`}).join('')}</select>`;
+function openF(type,id,lend){const t=id?D.tx.find(x=>x.id==id):{date:today(),acct:'online',kind:'useful',cat:'Food',lendId:lend||''};if(!t)return;
+const T={add:'Add Money',expense:'Add Expense',transfer:'Transfer',lend:'Lend Money',repay:'Record Repayment'}[type],Lb={add:'Add to',expense:'Paid from',lend:'Lent from',repay:'Received into'}[type],AC=[['online','Online'],['offline','Offline']];let h='';
+if(type=='repay'){const ls=D.tx.filter(x=>x.type=='lend'&&rem(x.id,id)>0);if(!ls.length)return alert('No outstanding lent money.');h+=f('Repaid by',sel('lend',ls.map(x=>[x.id,`${x.person} — ${money(rem(x.id,id))} due`]),t.lendId))}
+if(type=='lend')h+=f('Person',inp('person',t.person||''));
+h+=f('Amount (₹)',inp('amt',t.amt||'','number','step="0.01" inputmode="decimal"'));
+h+=type=='transfer'?f('Direction',sel('acct',[['online','Online → Offline'],['offline','Offline → Online']],t.acct)):f(Lb,sel('acct',AC,t.acct));
+if(type=='expense')h+=f('Category',sel('cat',cats().includes(t.cat)?cats():[...cats(),t.cat],t.cat))+f('Useful or Futile',sel('kind',[['useful','Useful'],['futile','Futile']],t.kind));
+if(type=='add'||type=='lend')h+=f('Reason',inp('reason',t.reason||''));
+h+=f('Date',inp('date',t.date,'date'));if(type!='lend')h+=f('Note (optional)',inp('note',t.note||''));
+$('#m').innerHTML=`<div class="sheet"><h2>${id?'Edit — ':''}${T}</h2>${h}<button class="btn w" onclick="sv('${type}','${id||''}')">Save</button>${id?`<button class="btn d w" onclick="del('${id}')">Delete</button>`:''}<button class="btn o w" onclick="closeM()">Cancel</button></div>`;$('#m').hidden=false}
+const closeM=()=>$('#m').hidden=true;
+function sv(type,id){const g=n=>{const e=$('#f_'+n);return e?e.value.trim():undefined},amt=r2(parseFloat(g('amt')));if(!(amt>0))return alert('Enter a valid amount.');
+const o={id:id?+id:newId(),type,amt,acct:g('acct'),date:g('date')||today(),reason:g('reason'),note:g('note'),cat:g('cat'),kind:g('kind'),person:g('person'),lendId:g('lend')?+g('lend'):undefined};
+if(type=='lend'){if(!o.person)return alert('Enter the person.');const paid=sum(D.tx.filter(x=>x.type=='repay'&&x.lendId==o.id));if(amt<paid-.001)return alert('Amount cannot be less than what was already repaid ('+money(paid)+').')}
+if(type=='repay'&&amt>rem(o.lendId,o.id)+.001)return alert('Repayment is more than the amount due ('+money(rem(o.lendId,o.id))+').');
+const nt=id?D.tx.map(x=>x.id==o.id?o:x):[...D.tx,o],m=calc(nt);
+if((m.on<0||m.off<0)&&!confirm('This will make a balance negative. Save anyway?'))return;D.tx=nt;closeM();save()}
+function del(id){const t=D.tx.find(x=>x.id==id),n=D.tx.filter(x=>x.lendId==id).length;
+if(!confirm(n?`Delete this loan and its ${n} repayment(s)?`:'Delete this transaction?'))return;D.tx=D.tx.filter(x=>x.id!=id&&x.lendId!=id);closeM();save()}
+// ---- BACKUP
+async function out(name,text,mime){const C=window.Capacitor;
+try{if(C&&C.isNativePlatform&&C.isNativePlatform()){const{Filesystem,Share}=C.Plugins,r=await Filesystem.writeFile({path:name,data:text,directory:'CACHE',encoding:'utf8'});await Share.share({title:name,url:r.uri,dialogTitle:'Save backup'})}
+else{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type:mime}));a.download=name;a.click()}}catch(e){if(!/cancel/i.test(e.message||''))alert('Export failed: '+(e.message||e))}}
+const expJSON=()=>out(`ledger-${today()}.json`,JSON.stringify(D,null,1),'application/json');
+function expCSV(){const q=v=>'"'+String(v==null?'':v).replace(/"/g,'""')+'"',H=['date','type','account','amount','category','useful_or_futile','person','reason','note'];
+out(`ledger-${today()}.csv`,[H.join(','),...D.tx.slice().sort((a,b)=>a.date.localeCompare(b.date)||a.id-b.id).map(t=>[t.date,t.type,t.acct,t.amt,t.cat,t.kind,t.person||lendP(t),t.reason,t.note].map(q).join(','))].join('\n'),'text/csv')}
+function impJSON(el){const file=el.files[0];if(!file)return;const rd=new FileReader();rd.onload=()=>{try{const j=JSON.parse(rd.result);if(!Array.isArray(j.tx))throw 0;
+const ok=j.tx.filter(t=>['add','expense','transfer','lend','repay'].includes(t.type)&&t.amt>0&&['online','offline'].includes(t.acct)&&typeof t.date=='string');
+if(!confirm(`Replace current data with ${ok.length} transactions from this backup?`))return;
+D={tx:ok,cats:Array.isArray(j.cats)?j.cats:[],lim:Object.assign({month:0,futile:0},j.lim,{cat:(j.lim&&j.lim.cat)||{}})};save();alert('Backup imported.')}catch(e){alert('That file is not a valid backup.')}el.value=''};rd.readAsText(file)}
+if(navigator.storage&&navigator.storage.persist)navigator.storage.persist();render();
+if('serviceWorker' in navigator&&location.protocol.startsWith('http'))navigator.serviceWorker.register('sw.js');
+</script></body></html>
